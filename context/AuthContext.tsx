@@ -46,6 +46,22 @@ const shouldUseAPI = () => {
   return USE_API_ENV;
 };
 
+// Sin API: acceso directo como Admin (máxima autoridad), sin pantalla de login
+const shouldSkipLogin = () => !shouldUseAPI();
+
+function getDefaultAdminUser(): User {
+  return {
+    id: 'local-admin',
+    email: 'admin@local',
+    name: 'Administrador (máxima autoridad)',
+    role: 'Admin',
+    createdAt: new Date().toISOString(),
+    isActive: true,
+    permissions: getPermissionsForRole('Admin'),
+    lastLogin: new Date().toISOString(),
+  };
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,12 +96,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const loadStoredUser = async () => {
+      let userSet = false;
       try {
         // Google OAuth redirect: procesar credential antes que nada
         const credential = getCredentialFromUrl();
         if (credential) {
           try {
             await loginWithGoogle(false, true, credential);
+            userSet = true;
             window.history.replaceState({}, document.title, window.location.pathname || '/');
             return;
           } catch (e) {
@@ -96,6 +114,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         if (!isSessionValid()) {
+          if (shouldSkipLogin()) {
+            setUser(getDefaultAdminUser());
+            userSet = true;
+          }
           setIsLoading(false);
           return;
         }
@@ -104,6 +126,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const storedToken = getStoredToken();
         
         if (!storedUser || !storedToken) {
+          if (shouldSkipLogin()) {
+            setUser(getDefaultAdminUser());
+            userSet = true;
+          }
           setIsLoading(false);
           return;
         }
@@ -128,10 +154,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               logger.warn('Socket.IO connection failed (non-critical):', err);
             });
             setUser(mergedUser);
+            userSet = true;
           } catch (error) {
             // Token invalid, clear storage
             logger.error('Token validation failed:', error);
             clearSession();
+            if (shouldSkipLogin()) {
+              setUser(getDefaultAdminUser());
+              userSet = true;
+            }
             setIsLoading(false);
             return;
           }
@@ -163,10 +194,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           setUser(storedUser);
+          userSet = true;
         }
       } catch (error) {
         logger.error('Error loading stored user:', error);
       } finally {
+        if (!userSet && shouldSkipLogin()) {
+          setUser(getDefaultAdminUser());
+        }
         setIsLoading(false);
       }
     };
